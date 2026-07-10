@@ -1,0 +1,3 @@
+;; Real-world organization location / contact.
+;; :head-role is institutional title only — no personal names.
+{:ooyake-id "gov.usa.sec", :official-url "https://www.sec.gov/", :name-en "United States Securities and Exchange Commission", :wikidata "Q827960", :head-role "Chair of the Securities and Exchange Commission", :head-role-note "institutional office title only; personal names of current office-holders are intentionally NOT stored", :contact-page "https://www.sec.gov/", :sourced-from "com-etzhayyim-ooyake gov-units (verbatim where present)"}
