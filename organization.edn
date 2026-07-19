@@ -2,9 +2,11 @@
 ;; :head-role is institutional title only — no personal names.
 {:ooyake-id "gov.usa.sec"
   :official-url "https://www.sec.gov/"
+  :name-en "United States Securities and Exchange Commission"
+  :wikidata "Q827960"
   :head-role "Chair of the Securities and Exchange Commission"
   :head-role-note "institutional office title only; personal names of current office-holders are intentionally NOT stored"
   :contact-page "https://www.sec.gov/about/contact-information"
   :sourced-from "official public contact page"
-  :hq {:line-en "100 F Street NE, Washington, DC 20549" :line-local "100 F Street NE, Washington, DC 20549" :postal-code "20549" :country "usa" :phone "1-202-551-6551" :kind "headquarters" :provenance "https://www.sec.gov/about/contact-information" :last-verified "2026-07-10" :sourcing "official-site-public"}
+  :hq {:line-en "100 F Street NE, Washington, DC 20549" :line-local "100 F Street NE, Washington, DC 20549" :postal-code "20549" :phone "1-202-551-6551" :kind "headquarters" :provenance "https://www.sec.gov/about/contact-information" :last-verified "2026-07-10" :sourcing "official-site-public" :country "usa"}
 }
