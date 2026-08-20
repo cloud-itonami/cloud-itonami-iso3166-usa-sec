@@ -1,0 +1,250 @@
+#!/usr/bin/env nbb
+;; Does `tools/verify_citations.cljs` actually discriminate?
+;;
+;; A gate nobody has seen fail is indistinguishable from a gate that cannot
+;; fail. This harness breaks one property at a time in a THROWAWAY COPY of the
+;; tree, runs the real gate against it, and requires that the run both fails
+;; and fails for the stated reason.
+;;
+;; Three things it refuses to take on trust, each learned from a gate that
+;; looked convincing and was not:
+;;
+;;   * that the mutation applied. If the anchor or the target text is not found,
+;;     the file is left untouched, the gate goes green, and a naive harness
+;;     records `green` as `this mutation did not break anything`. Here an
+;;     unapplied mutation is reported as HARNESS-BUG, never counted as a pass.
+;;
+;;   * that the mutation changed only what it claimed. Every anchor must occur
+;;     EXACTLY once, so a mutation cannot silently rewrite a second site and
+;;     produce a red for a reason other than the one under test.
+;;
+;;   * that the red names the right check. Breaking property A and observing the
+;;     gate go red is worthless if what actually tripped was property B, so each
+;;     case declares the marker its output must contain.
+;;
+;; Exit 0 = the gate discriminated on every case. Exit 1 = at least one case
+;; did not behave as declared. Exit 2 = the harness itself could not run a case.
+;;
+;; Usage:  nbb tools/mutation_check.cljs [--only <id>] [--offline]
+;;   --offline runs only the cases that fail before any network fetch.
+
+(ns mutation-check
+  (:require [clojure.string :as str]
+            ["fs" :as fs]
+            ["os" :as os]
+            ["path" :as path]
+            ["child_process" :as cp]))
+
+(def argv (vec (drop 3 (js->clj js/process.argv))))
+(defn flag? [f] (boolean (some #{f} argv)))
+(defn flag-val [f d] (let [i (.indexOf argv f)] (if (neg? i) d (get argv (inc i) d))))
+
+(def only    (flag-val "--only" nil))
+(def offline (flag? "--offline"))
+
+(def facts "src/statute/facts.cljc")
+
+;; ---------------------------------------------------------------------------
+;; The cases.
+;;
+;; :anchor -- a string that must occur exactly once, locating the site
+;; :find   -- the text to replace, searched for AFTER the anchor
+;; :expect -- required exit code
+;; :marker -- required substring of the run's output
+;; :net?   -- true if the case can only fail after data has been fetched
+
+(def cases
+  [;; ---- headings -----------------------------------------------------------
+   {:id :heading-drift :net? true :expect 1 :marker "DRIFT"
+    :anchor ":statute/id            :title-17/root"
+    :find "\"Commodity and Securities Exchanges\""
+    :replace "\"Commodity and Securities Exchange\""
+    :why "a recorded label that no longer matches eCFR byte-for-byte"}
+
+   {:id :node-path-falsified :net? true :expect 1 :marker "MISSING"
+    :anchor ":statute/id            :sec/forms-exchange-act"
+    :find "[[\"chapter\" \"II\"] [\"part\" \"249\"]]"
+    :replace "[[\"chapter\" \"II\"] [\"part\" \"9249\"]]"
+    :why "a node path that does not resolve must not be reported as verified"}
+
+   {:id :wildcard-ambiguous :net? true :expect 1 :marker "AMBIGUOUS"
+    :anchor ":statute/id            :sec/annual-report-13a"
+    :find "[\"subject_group\" \"*\"] [\"section\" \"240.13a-1\"]"
+    :replace "[\"subject_group\" \"*\"] [\"section\" \"*\"]"
+    :why "a wildcard resolving to many nodes must fail, not silently take one"}
+
+   ;; ---- quotes -------------------------------------------------------------
+   {:id :quote-drift :net? true :expect 1 :marker "QUOTE-DRIFT"
+    :anchor ":statute/id            :sec/annual-report-13a"
+    :find "section 12 of the Act"
+    :replace "section 13 of the Act"
+    :why "a quoted span that is no longer in the live section text"}
+
+   ;; ---- counts (the check this leaf added) ----------------------------------
+   {:id :count-drift-nonzero :net? true :expect 1 :marker "COUNT-DRIFT"
+    :anchor ":count/id :far-52/correct-name-elsewhere"
+    :find ":count/expect 3"
+    :replace ":count/expect 4"
+    :why "an exact count that no longer matches the live document"}
+
+   {:id :count-drift-zero :net? true :expect 1 :marker "COUNT-DRIFT"
+    :anchor ":count/id :far-52-204-10/correct-name"
+    :find ":count/expect 0"
+    :replace ":count/expect 1"
+    :why "THE central finding: if the FAR is ever corrected to spell the agency
+          properly, this catalog's advice changes and the gate must say so"}
+
+   {:id :count-control-removed :net? false :expect 2 :marker ":count/control"
+    :anchor ":count/id :far-52-204-10/correct-name"
+    :find "\n    :count/control \"Security and Exchange Commission\""
+    :replace ""
+    :why "a zero-expectation with no control is confirmed for free by an empty
+          document, so the gate must refuse to run it at all"}
+
+   {:id :count-control-unmatchable :net? true :expect 2 :marker "CONTROL-FAILED"
+    :anchor ":count/id :assistance-170/correct-name"
+    :find ":count/control \"Security and Exchange Commission\""
+    :replace ":count/control \"Ministry of Silly Walks\""
+    :why "a control that stops matching means the run read the wrong document --
+          could-not-answer, not a pass and not a drift"}
+
+   ;; ---- text absences ------------------------------------------------------
+   {:id :text-absence-broken :net? true :expect 1 :marker "ABSENCE-BROKEN"
+    :anchor ":absence/id :far-52-204-10/agency-name-never-spelled-correctly"
+    :find ":statute/pattern \"Securities and Exchange Commission\""
+    :replace ":statute/pattern \"Security and Exchange Commission\""
+    :why "a pattern that IS present must not be reported as absent"}
+
+   {:id :text-absence-control-dead :net? true :expect 2 :marker "CONTROL-FAILED"
+    :anchor ":absence/id :assistance-170/agency-name-never-spelled-correctly"
+    :find ":absence/control-text {:statute/pattern \"Security and Exchange Commission\"}"
+    :replace ":absence/control-text {:statute/pattern \"Ministry of Silly Walks\"}"
+    :why "without a live control, `no match` in an empty document reads as proof"}
+
+   ;; ---- structural absences ------------------------------------------------
+   {:id :label-absence-broken :net? true :expect 1 :marker "ABSENCE-BROKEN"
+    :anchor ":absence/id :title-17/carries-no-procurement-vocabulary"
+    :find ":statute/pattern \"(?i)federal acquisition|procurement|contractor\""
+    :replace ":statute/pattern \"(?i)securities\""
+    :why "a label pattern that matches 355 nodes must not pass as absent"}
+
+   {:id :label-absence-control-dead :net? true :expect 2 :marker "CONTROL-FAILED"
+    :anchor ":absence/id :far-52/headings-never-name-the-exchange-act"
+    :find ":absence/control-label {:statute/pattern \"(?i)securit\"}"
+    :replace ":absence/control-label {:statute/pattern \"(?i)zzzznotathing\"}"
+    :why "a vacuous subtree scan must be could-not-answer"}
+
+   ;; ---- configuration ------------------------------------------------------
+   {:id :structure-endpoint-removed :net? false :expect 2 :marker "no structure endpoint"
+    :anchor "(def ecfr-structure-api"
+    :find "\n   17 \"https://www.ecfr.gov/api/versioner/v1/structure/2026-08-18/title-17.json\""
+    :replace ""
+    :why "a title nobody declared an endpoint for is a could-not-answer, not a
+          quietly smaller run"}
+
+   {:id :fulltext-endpoint-removed :net? false :expect 2 :marker "no full-text endpoint"
+    :anchor "(def ecfr-full-text-api"
+    :find "\n   17 \"https://www.ecfr.gov/api/versioner/v1/full/2026-08-18/title-17.xml\""
+    :replace ""
+    :why "same, for the document half"}
+
+   ;; ---- floors (no file mutation; the gate is asked for more than it has) ---
+   {:id :floor-headings :net? false :expect 2 :marker "below --min"
+    :args ["--min" "999"]
+    :why "a run that checked less than it promised is not a pass"}
+
+   {:id :floor-counts :net? false :expect 2 :marker "below --min-counts"
+    :args ["--min-counts" "999"]
+    :why "the count floor exists so that deleting counts cannot quietly shrink
+          the gate"}])
+
+;; ---------------------------------------------------------------------------
+
+(defn- n-occ [s pat]
+  (loop [i 0 c 0] (let [j (.indexOf s pat i)] (if (neg? j) c (recur (+ j (count pat)) (inc c))))))
+
+(defn- copy-tree! [src dst]
+  (fs/mkdirSync dst #js {:recursive true})
+  (doseq [e (fs/readdirSync src #js {:withFileTypes true})]
+    (let [n (.-name e) s (path/join src n) d (path/join dst n)]
+      (cond
+        (and (.isDirectory e) (not (#{".git" "node_modules" ".cpcache"} n))) (copy-tree! s d)
+        (.isFile e) (fs/copyFileSync s d)))))
+
+(def repo-root
+  (loop [dir (js/process.cwd) hops 0]
+    (cond (fs/existsSync (path/join dir facts)) dir
+          (> hops 3) (do (println "CANNOT-ANSWER: cannot find" facts) (js/process.exit 2))
+          :else (recur (path/dirname dir) (inc hops)))))
+
+(defn run-gate [dir extra]
+  (let [r (cp/spawnSync "nbb" (clj->js (concat ["tools/verify_citations.cljs"] extra))
+                        #js {:cwd dir :encoding "utf8"})]
+    {:code (.-status r)
+     :out  (str (.-stdout r) (.-stderr r))}))
+
+(defn apply-mutation!
+  "Returns :ok, or a HARNESS-BUG string. Asserts the anchor is unique, the
+  target exists after it, and the bytes on disk actually changed."
+  [dir {:keys [anchor find replace]}]
+  (let [p (path/join dir facts)
+        before (fs/readFileSync p "utf8")
+        occ (n-occ before anchor)]
+    (cond
+      (not= 1 occ)
+      (str "anchor " (pr-str anchor) " occurs " occ " time(s), expected exactly 1")
+      :else
+      (let [ai (.indexOf before anchor)
+            fi (.indexOf before find ai)]
+        (if (neg? fi)
+          (str "target " (pr-str (subs find 0 (min 50 (count find)))) " not found after anchor")
+          (let [after (str (subs before 0 fi) replace (subs before (+ fi (count find))))]
+            (fs/writeFileSync p after)
+            (if (= after (fs/readFileSync p "utf8"))
+              (if (= before after) "mutation produced identical bytes" :ok)
+              "file on disk does not match what was written")))))))
+
+(defn -main []
+  (let [todo (cond->> cases
+               only    (filter #(= only (name (:id %))))
+               offline (filter #(not (:net? %))))]
+    (when (empty? todo)
+      (println "CANNOT-ANSWER: no cases selected") (js/process.exit 2))
+    (println "Mutation check --" (count todo) "case(s). Each must fail, for its own reason.\n")
+    (let [results
+          (doall
+           (for [c todo]
+             (let [dir (fs/mkdtempSync (path/join (os/tmpdir) "sec-mut-"))]
+               (copy-tree! repo-root dir)
+               (let [applied (if (:args c) :ok (apply-mutation! dir c))]
+                 (if (not= :ok applied)
+                   (do (println "  HARNESS-BUG" (name (:id c)) "--" applied)
+                       (assoc c :verdict :harness-bug))
+                   (let [{:keys [code out]} (run-gate dir (or (:args c) []))
+                         ok? (and (= code (:expect c)) (str/includes? out (:marker c)))]
+                     (println (if ok? "  red  " "  MISS ") (name (:id c))
+                              "-- exit" code "(want" (str (:expect c) ")")
+                              (if (str/includes? out (:marker c))
+                                (str "and said " (pr-str (:marker c)))
+                                (str "but never said " (pr-str (:marker c)))))
+                     (when-not ok?
+                       (println "        output:" (str/trim (subs out 0 (min 400 (count out))))))
+                     (assoc c :verdict (if ok? :red :miss))))))))
+          bugs (filter #(= :harness-bug (:verdict %)) results)
+          miss (filter #(= :miss (:verdict %)) results)]
+      (println)
+      (cond
+        (seq bugs)
+        (do (println "HARNESS-BUG --" (count bugs)
+                     "case(s) never actually changed the tree, so their result means nothing.")
+            (js/process.exit 2))
+        (seq miss)
+        (do (println "FAILED --" (count miss) "case(s) did not discriminate:")
+            (doseq [m miss] (println "  *" (name (:id m)) "--" (str/replace (:why m) #"\s+" " ")))
+            (js/process.exit 1))
+        :else
+        (do (println "DISCRIMINATED:" (count results)
+                     "case(s), each red for its declared reason.")
+            (js/process.exit 0))))))
+
+(-main)
