@@ -19,7 +19,7 @@
       DATA somewhere, so that deleting the evidence cannot leave the prose
       standing."
   (:require [clojure.test :refer [deftest is testing]]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [statute.facts :as f]))
 
 (def all (f/entries))
