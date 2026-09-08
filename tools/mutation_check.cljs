@@ -29,7 +29,7 @@
 ;;   --offline runs only the cases that fail before any network fetch.
 
 (ns mutation-check
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             ["fs" :as fs]
             ["os" :as os]
             ["path" :as path]
