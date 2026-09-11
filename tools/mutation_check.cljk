@@ -1,4 +1,4 @@
-#!/usr/bin/env nbb
+#!/usr/bin/env kbb
 ;; Does `tools/verify_citations.cljk` actually discriminate?
 ;;
 ;; A gate nobody has seen fail is indistinguishable from a gate that cannot
@@ -25,7 +25,7 @@
 ;; Exit 0 = the gate discriminated on every case. Exit 1 = at least one case
 ;; did not behave as declared. Exit 2 = the harness itself could not run a case.
 ;;
-;; Usage:  nbb tools/mutation_check.cljk [--only <id>] [--offline]
+;; Usage:  kbb --backend sci tools/mutation_check.cljk [--only <id>] [--offline]
 ;;   --offline runs only the cases that fail before any network fetch.
 
 (ns mutation-check

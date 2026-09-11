@@ -76,16 +76,16 @@ a citation round. The contradiction is stated here rather than smoothed over.
 
 ```bash
 # live gate -- re-fetches eCFR. exit 0 verified / 1 drifted / 2 could-not-answer
-nbb tools/verify_citations.cljk
+kbb --backend sci tools/verify_citations.cljk
 
 # the red side of the same gate: breaks one property at a time in a throwaway
 # copy and requires the gate to fail for that stated reason
-nbb tools/mutation_check.cljk            # 16 cases (network)
-nbb tools/mutation_check.cljk --offline  #  5 cases (no network)
+kbb --backend sci tools/mutation_check.cljk            # 16 cases (network)
+kbb --backend sci tools/mutation_check.cljk --offline  #  5 cases (no network)
 
 # offline shape invariants -- what the live gate depends on being present
-clojure -M:test
-clojure -M:lint
+kbb -M:test
+kbb -M:lint
 ```
 
 The gate distinguishes **could-not-answer (exit 2)** from **wrong (exit 1)**.
