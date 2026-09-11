@@ -21,7 +21,7 @@
   returned by the eCFR versioner structure API on `:statute/verified-at`, and
   each string in `:statute/verified-quotes` is a byte-exact span of the
   section text returned by the eCFR versioner full-text API.
-  `tools/verify_citations.cljs` re-fetches both and fails if either drifts.
+  `tools/verify_citations.cljk` re-fetches both and fails if either drifts.
 
   Why the citation and the verification URL differ. `:statute/url` is the
   canonical human address a person should open. It is deliberately NOT the URL
