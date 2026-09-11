@@ -12,13 +12,13 @@ composing with the country coordinator `cloud-itonami-iso3166-usa`.
 - **Not Securities and Exchange Commission.** Commercial compliance navigation only.
 - **Not legal advice.** Cite official sources; route licensed work to counsel.
 
-## The spec-basis: `src/statute/facts.cljc`
+## The spec-basis: `src/statute/facts.cljk`
 
 A catalog of **21 verified regulatory anchors** across CFR titles **2, 17 and 48**,
 carrying **9 byte-exact quoted spans**, **8 exact occurrence counts** and
 **4 checked absences**. Every heading is the byte-exact `label_description`
 returned by the eCFR versioner API; every quote is a byte-exact span of live
-section text. `tools/verify_citations.cljs` re-fetches all of it and fails if
+section text. `tools/verify_citations.cljk` re-fetches all of it and fails if
 any of it drifts.
 
 ### What the catalog found
@@ -76,12 +76,12 @@ a citation round. The contradiction is stated here rather than smoothed over.
 
 ```bash
 # live gate -- re-fetches eCFR. exit 0 verified / 1 drifted / 2 could-not-answer
-nbb tools/verify_citations.cljs
+nbb tools/verify_citations.cljk
 
 # the red side of the same gate: breaks one property at a time in a throwaway
 # copy and requires the gate to fail for that stated reason
-nbb tools/mutation_check.cljs            # 16 cases (network)
-nbb tools/mutation_check.cljs --offline  #  5 cases (no network)
+nbb tools/mutation_check.cljk            # 16 cases (network)
+nbb tools/mutation_check.cljk --offline  #  5 cases (no network)
 
 # offline shape invariants -- what the live gate depends on being present
 clojure -M:test

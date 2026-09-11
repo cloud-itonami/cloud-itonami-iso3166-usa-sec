@@ -1,5 +1,5 @@
 #!/usr/bin/env nbb
-;; Does `tools/verify_citations.cljs` actually discriminate?
+;; Does `tools/verify_citations.cljk` actually discriminate?
 ;;
 ;; A gate nobody has seen fail is indistinguishable from a gate that cannot
 ;; fail. This harness breaks one property at a time in a THROWAWAY COPY of the
@@ -25,7 +25,7 @@
 ;; Exit 0 = the gate discriminated on every case. Exit 1 = at least one case
 ;; did not behave as declared. Exit 2 = the harness itself could not run a case.
 ;;
-;; Usage:  nbb tools/mutation_check.cljs [--only <id>] [--offline]
+;; Usage:  nbb tools/mutation_check.cljk [--only <id>] [--offline]
 ;;   --offline runs only the cases that fail before any network fetch.
 
 (ns mutation-check
@@ -42,7 +42,7 @@
 (def only    (flag-val "--only" nil))
 (def offline (flag? "--offline"))
 
-(def facts "src/statute/facts.cljc")
+(def facts "src/statute/facts.cljk")
 
 ;; ---------------------------------------------------------------------------
 ;; The cases.
@@ -178,7 +178,7 @@
           :else (recur (path/dirname dir) (inc hops)))))
 
 (defn run-gate [dir extra]
-  (let [r (cp/spawnSync "nbb" (clj->js (concat ["tools/verify_citations.cljs"] extra))
+  (let [r (cp/spawnSync "nbb" (clj->js (concat ["tools/verify_citations.cljk"] extra))
                         #js {:cwd dir :encoding "utf8"})]
     {:code (.-status r)
      :out  (str (.-stdout r) (.-stderr r))}))
