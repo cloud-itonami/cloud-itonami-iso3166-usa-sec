@@ -18,7 +18,7 @@
     * the three findings in the namespace docstring are each still encoded as
       DATA somewhere, so that deleting the evidence cannot leave the prose
       standing."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [kotoba.lang.text :as str]
             [statute.facts :as f]))
 
